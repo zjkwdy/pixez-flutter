@@ -22,54 +22,51 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.content.pm.ResolveInfo
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.PersistableBundle
 import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.lifecycleScope
+import com.perol.pixez.plugin.CustomTab
+import com.perol.pixez.plugin.DeepLinkPlugin
+import com.perol.pixez.plugin.JsEvalPlugin
+import com.perol.pixez.plugin.OpenSettinger
+import com.perol.pixez.plugin.Safer
+import com.perol.pixez.plugin.SecurePlugin
+import com.perol.pixez.plugin.Weiss
+import com.perol.pixez.plugin.exist
+import com.perol.pixez.plugin.save
 import com.waynejo.androidndkgif.GifEncoder
 import io.flutter.Log
-import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugins.GeneratedPluginRegistrant
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.*
 
-class MainActivity : FlutterFragmentActivity() {
+class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.perol.dev/save"
     private val ENCODE_CHANNEL = "samples.flutter.dev/battery"
     private val SUPPORTER_CHANNEL = "com.perol.dev/supporter"
-    var saveMode = 0
+    private var saveMode = 0
     private val OPEN_DOCUMENT_TREE_CODE = 190
     private val PICK_IMAGE_FILE = 2
-    var pendingResult: MethodChannel.Result? = null
-    var pendingPickResult: MethodChannel.Result? = null
-    var helplessPath: String? = null
+    private var pendingResult: MethodChannel.Result? = null
+    private var pendingPickResult: MethodChannel.Result? = null
+    private var helplessPath: String? = null
     private val SHARED_PREFERENCES_NAME = "FlutterSharedPreferences"
-    lateinit var sharedPreferences: SharedPreferences
-
-    val requestPermissionLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { isGranted: Boolean ->
-            pendingPickResult?.success(isGranted)
-            pendingPickResult = null
-        }
+    private lateinit var sharedPreferences: SharedPreferences
 
     override fun onCreate(savedInstanceState: Bundle?) {
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -93,6 +90,7 @@ class MainActivity : FlutterFragmentActivity() {
         CustomTab.bindChannel(this, flutterEngine)
         Safer.bindChannel(this, flutterEngine)
         JsEvalPlugin(this).bindChannel(flutterEngine)
+        SecurePlugin(this).bindChannel(flutterEngine)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             SUPPORTER_CHANNEL
@@ -159,12 +157,8 @@ class MainActivity : FlutterFragmentActivity() {
         ).setMethodCallHandler { call, result ->
             when (call.method) {
                 "requestPermission" -> {
-                    //TODO wait permission handler plugin
                     if (Build.VERSION.SDK_INT >= 33) {
-                        requestPermissionLauncher.launch(
-                            Manifest.permission.READ_MEDIA_IMAGES
-                        )
-                        pendingPickResult = result
+                        result.success(true)
                     }
                 }
 
@@ -393,7 +387,6 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun encodeGif(name: String, path: String, delay: Int, delayArray: List<Int>) {
-
         val file = File(path)
         file.let {
             val tempFile = File(
@@ -480,7 +473,7 @@ class MainActivity : FlutterFragmentActivity() {
                 contentResolver.openOutputStream(uri!!, "w")?.use { outputStream ->
                     outputStream.write(tempFile.inputStream().readBytes())
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 e.printStackTrace()
                 tempFile.delete()
                 it.deleteRecursively()
@@ -594,26 +587,18 @@ class MainActivity : FlutterFragmentActivity() {
         if (fileName.contains("/")) {
             val names = fileName.split("/")
             if (names.size >= 2) {
-                val fName = names.last()
-                val folderName = names.first()
-                if (clearOld && fName.contains("_p0"))
-                    treeDocument.findFile(fName.replace("_p0", ""))
-                var folderDocument = treeDocument.findFile(folderName)
-                if (folderDocument == null) {
-                    val tempFolderDocument = treeDocument.createDirectory(folderName)
-                    folderDocument = treeDocument.findFile(folderName)
-                    if (tempFolderDocument != null && folderDocument != null) {
-                        if (tempFolderDocument.uri != folderDocument.uri) {
-                            // 文件夹已经被创建过
-                            tempFolderDocument.delete()
-                        }
+                try {
+                    var folderDocument: DocumentFile? = treeDocument
+                    val fName = names.last()
+                    val list = names.subList(0, names.size - 1)
+                    for (name in list) {
+                        folderDocument = folderDocument!!.findFile(name)
+                            ?: folderDocument.createDirectory(name)!!
                     }
+                    return folderDocument?.createFile(mimeType, fName)?.uri
+                } catch (e: Throwable) {
+                    return null
                 }
-                val file = folderDocument?.findFile(fName)
-                if (file != null && file.exists()) {
-                    file.delete()
-                }
-                return folderDocument?.createFile(mimeType, fName)?.uri
             }
         }
         if (clearOld && fileName.contains("_p0"))
